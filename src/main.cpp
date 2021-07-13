@@ -13,10 +13,12 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 
+#define DEBUG 
+
 //define pins
+#define FLASH_LED_PIN 4
 #define MOVEMENT_SENSOR_PIN 14
 #define LIGHT_SENSOR_PIN 15
-#define FLASH_LED_PIN 4
 #define INTERNAL_LED 33
 
 //def time
@@ -46,7 +48,9 @@ void sendImage();
 
 void setup() {
   //serial
-  Serial.begin(115200);
+  #ifdef DEBUG
+    Serial.begin(115200);
+  #endif
 
   //pinmodes
   pinMode(MOVEMENT_SENSOR_PIN,INPUT);
@@ -61,29 +65,40 @@ void setup() {
 
   //setup cammera
   if (!setupCamera()){
+    #ifdef DEBUG
     Serial.println("Camera Setup Failed!");
+    #endif
     while (true){
       delay(100);
+      digitalWrite(FLASH_LED_PIN,0);
+      delay(100);
+     digitalWrite(FLASH_LED_PIN,1);
     }
   }
 
   //connect to networke
+  #ifdef DEBUG
   Serial.print("Connecting to Wifi SSID ");
   Serial.print(WIFI_SSID);
+  #endif
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   // Add root certificate for api.telegram.org
   secured_client.setCACert(TELEGRAM_CERTIFICATE_ROOT);
   while (WiFi.status() != WL_CONNECTED){
-    Serial.print(".");
+    #ifdef DEBUG
+      Serial.print(".");
+    #endif
     delay(500);
   }
-  Serial.print("\nWiFi connected. IP address: ");
-  Serial.println(WiFi.localIP().toString());
+  #ifdef DEBUG
+    Serial.print("\nWiFi connected. IP address: ");
+    Serial.println(WiFi.localIP().toString());
+  #endif
 
   //set commands
   bot_setup();
 
-  //send start message
+  //send /activate message
   bot.sendMessage(CHAT_ID, "Bot started up with IP: "+ WiFi.localIP().toString(), ""); 
   
   digitalWrite(INTERNAL_LED,0);
@@ -102,7 +117,9 @@ void loop() {
   if (millis() - bot_lasttime > BOT_MTBS){
     int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
     while (numNewMessages){
-      Serial.println("got response");
+      #ifdef DEBUG
+        Serial.println("got response");
+      #endif
       handleNewMessages(numNewMessages);
       numNewMessages = bot.getUpdates(bot.last_message_received + 1);
     }
@@ -112,16 +129,22 @@ void loop() {
 
 void bot_setup(){
   const String commands = F("["
-                            "{\"command\":\"help\",  \"description\":\"Get bot usage help\"},"
-                            "{\"command\":\"start\", \"description\":\"Start image captureing on movement\"},"
-                            "{\"command\":\"stop\",  \"description\":\"Stop image captureing on movement\"},"
-                            "{\"command\":\"flashon\", \"description\":\"Use flash when taking an image\"},"
-                            "{\"command\":\"flashoff\", \"description\":\"Don't use flash when taking an image\"},"
-                            "{\"command\":\"flashauto\", \"description\":\"Automatically use flash if needed\"},"
-                            "{\"command\":\"brightness\", \"description\":\"Tells you if it is bright enough\"},"
-                            "{\"command\":\"image\", \"description\":\"Take an image\"},"
+                              "{\"command\":\"help\",  \"description\":\"\xE2\x9D\x94 Print short overview\"},"
+                              "{\"command\":\"start\",  \"description\":\"\xE2\x9C\xA8 Print info and short manual\"},"
+                              "{\"command\":\"status\",  \"description\":\"\xF0\x9F\x9A\xA5 Print status of the device (cammera, flash and brightness)\"},"
+                              "{\"command\":\"activate\", \"description\":\"\xE2\x9A\xA0 Activate image capture on movement\"},"
+                              "{\"command\":\"deactivate\",  \"description\":\"\xF0\x9F\x9A\xAB Deactivate image capture on movement\"},"
+                              "{\"command\":\"flashon\", \"description\":\"\xE2\x9C\x94 Always use flash\"},"
+                              "{\"command\":\"flashoff\", \"description\":\"\xE2\x9D\x8C Never use flash\"},"
+                              "{\"command\":\"flashauto\", \"description\":\"\xF0\x9F\x91\x80 Automatically use flash if needed\"},"
+                              "{\"command\":\"brightness\", \"description\":\"\xF0\x9F\x8C\x9E Tells you if auto mode will use flash\"},"
+                              "{\"command\":\"image\", \"description\":\"\xF0\x9F\x93\xB7 Take an image\"}"
                             "]");
-  Serial.println("commands: "+ bot.setMyCommands(commands) ? "true":"false");
+  #ifdef DEBUG
+    Serial.println("commands: "+ bot.setMyCommands(commands) ? "true":"false");
+  #else
+    bot.setMyCommands(commands); 
+  #endif
 }
 
 bool isMoreDataAvailable(){
@@ -160,13 +183,17 @@ void sendImage(){
   fb = esp_camera_fb_get();
   //process image
   if (!fb){
-    Serial.println("Camera capture failed");
+    #ifdef DEBUG
+      Serial.println("Camera capture failed");
+    #endif
     bot.sendMessage(CHAT_ID, "Camera capture failed", "");
     return;
   }
   //data are available
   dataAvailable = true;
-  Serial.println("Sending");
+  #ifdef DEBUG
+    Serial.println("Sending");
+  #endif
   bot.sendPhotoByBinary(CHAT_ID, "image/jpeg", fb->len, isMoreDataAvailable, nullptr, getNextBuffer, getNextBufferLen);
 
   //prepare for next use
@@ -174,54 +201,115 @@ void sendImage(){
 
   //trun flash off
   digitalWrite(FLASH_LED_PIN,0);
-  Serial.println("done!");
+  #ifdef DEBUG
+    Serial.println("done!");
+  #endif
 }
 
 void handleNewMessages(int numNewMessages){
-  Serial.print("handleNewMessages ");
-  Serial.println(numNewMessages);
-  
+  #ifdef DEBUG
+    Serial.print("handleNewMessages ");
+    Serial.println(numNewMessages);
+  #endif
+
   String answer;
   for (int i = 0; i < numNewMessages; i++)
   {
     telegramMessage &msg = bot.messages[i];
-    Serial.println("Received " + msg.text+"\"");
-    if (msg.text == "/help"){
-      answer = "start, stop, flashon, flashoff, flashauto, brightness, image";
-      bot.sendMessage(CHAT_ID, answer, "");
-    }else if (msg.text == "/start"){
+    if(msg.text.length() <= 0) return;
+    #ifdef DEBUG
+      Serial.println("Received " + msg.text+"\"");
+    #endif
+    if (msg.text == "/start"){
+      answer = "*Huhu*, the camera \xF0\x9F\x93\xB7 is now active \xE2\x9A\xA0 and will send images when a movement is detected. "
+              "You can change the state with /activate \xE2\x9A\xA0 and /deactivate \xF0\x9F\x9A\xAB. The red light, at the back shows, "
+              "when the camera \xF0\x9F\x93\xB7  is active \xE2\x9A\xA0.\n\n "
+
+              "The Flash \xF0\x9F\x92\xA1 will be used automatically. This can be adjust by using /flashon \xE2\x9C\x94, /flasfoff \xE2\x9D\x8C and /flashauto \xF0\x9F\x91\x80. "
+              "To define when the automatic mode use the flash the LDR is used. By using the poti at the bottom, the brightness "
+              "when to use the flash can be defined. To test this the button next to the poti can be used. "
+              "Here, a blue LED \xF0\x9F\x94\xB5 show if the flash will be used (led off) or not (led on). "
+              "Also /brightness \xF0\x9F\x8C\x9E returns information if the auto mode use the flash or not.\n\n "
+
+              "By using the /image command a image \xF0\x9F\x93\xB7 can be toke manually.\n\n"
+
+              "Use /help for a short overview over all commands. ";
+
+      bot.sendMessage(CHAT_ID, answer, "Markdown");
+    }else if (msg.text == "/help"){
+      answer = F( "/help       - \xE2\x9D\x94 Print this message\n"
+                  "/start      - \xE2\x9C\xA8 Print info and short manual\n"
+                  "/status     - \xF0\x9F\x9A\xA5 Print status of the device (cammera, flash and brightness)"
+                  "/activate   - \xE2\x9A\xA0 Activate image capture on movement\n"
+                  "/deactivate - \xF0\x9F\x9A\xAB Deactivate image capture on movement\n"
+                  "/flashon    - \xE2\x9C\x94 Always use flash\n"
+                  "/flashoff   - \xE2\x9D\x8C Never use flash\n"
+                  "/flashauto  - \xF0\x9F\x91\x80 Automatically use flash if needed\n"
+                  "/brightness - \xF0\x9F\x8C\x9E Tells you if auto mode will use flash\n"
+                  "/image      - \xF0\x9F\x93\xB7 Take an image");
+      bot.sendMessage(CHAT_ID, answer, "Markdown");
+    }else if (msg.text == "/status"){
+      String status = "*deactive* \xF0\x9F\x9A\xAB";
+      if(isActive){
+        status = "*active* \xE2\x9A\xA0";
+      }
+
+      String flash = "*Auto* \xF0\x9F\x91\x80";
+      if(!flashAuto){
+        if(useFlash){
+          flash = "*on* \xE2\x9C\x94";
+        }else{
+          flash = "*off* \xE2\x9D\x8C";
+        }
+      }
+
+      String bright = "*dim*";
+      if(digitalRead(LIGHT_SENSOR_PIN)){
+        bright = "*bright*";
+      }
+
+      answer =  "\xF0\x9F\x9A\xA5 Status:\n"
+        	      "\xF0\x9F\x93\xB7 Camera:\t\t"+status + "\n"
+                "\xF0\x9F\x92\xA1 Flash:\t\t"+flash + "\n"
+                "\xF0\x9F\x8C\x9E Brightness:\t"+bright;
+      bot.sendMessage(CHAT_ID, answer, "Markdown");
+    }else if (msg.text == "/activate"){
       isActive = true;
-      answer = "Camera is active!";
-      bot.sendMessage(CHAT_ID, answer, "");
+      answer = "Camera is *active* \xE2\x9A\xA0!";
+      bot.sendMessage(CHAT_ID, answer, "Markdown");
       digitalWrite(INTERNAL_LED,0);
-    }else if (msg.text == "/stop"){
+    }else if (msg.text == "/deactivate"){
       isActive = false;
-      answer = "Camera deactivated!";
-      bot.sendMessage(CHAT_ID, answer, "");
+      answer = "Camera is *deactive* \xF0\x9F\x9A\xAB!";
+      bot.sendMessage(CHAT_ID, answer, "Markdown");
       digitalWrite(INTERNAL_LED,1);
     }else if (msg.text == "/flashon"){
       useFlash = true;
       flashAuto = false;
-      answer = "Flash will be used";
-      bot.sendMessage(CHAT_ID, answer, "");
+      answer = "Flash is *on* \xE2\x9C\x94";
+      bot.sendMessage(CHAT_ID, answer, "Markdown");
     }else if (msg.text == "/flashoff"){
       useFlash = false;
       flashAuto = false;
-      answer = "Flash won't be used";
-      bot.sendMessage(CHAT_ID, answer, "");
+      answer = "Flash is *off* \xE2\x9D\x8C";
+      bot.sendMessage(CHAT_ID, answer, "Markdown");
     }else if (msg.text == "/flashauto"){
       flashAuto = true;
       useFlash = false;
-      answer = "Automatically use flash";
-      bot.sendMessage(CHAT_ID, answer, "");
+      answer = "*Automatically* \xF0\x9F\x91\x80 use flash";
+      bot.sendMessage(CHAT_ID, answer, "Markdown");
     }else if (msg.text == "/brightness"){
-      answer = "Brightness: " + !digitalRead(LIGHT_SENSOR_PIN);
-      bot.sendMessage(CHAT_ID, answer, "");
+      if(!digitalRead(LIGHT_SENSOR_PIN)){
+        answer = "Flash is automatically set to *on* \xE2\x9C\x94";
+      }else{
+        answer = "Flash is automatically set to *off* \xE2\x9D\x8C";
+      }
+      bot.sendMessage(CHAT_ID, answer, "Markdown");
     }else if (msg.text == "/image"){
       sendImage();
     }else{
-      answer = "Say what?";
-      bot.sendMessage(CHAT_ID, answer, "");
+      answer = "\""+msg.text+ "\" is *unknown* \xF0\x9F\x98\x9F! Use /help for more information";
+      bot.sendMessage(CHAT_ID, answer, "Markdown");
     }
   }
 }
