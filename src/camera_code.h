@@ -1,5 +1,4 @@
-bool setupCamera()
-{
+bool setupCamera(){
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer = LEDC_TIMER_0;
@@ -25,13 +24,15 @@ bool setupCamera()
   if (psramFound())
   {
     config.frame_size = FRAMESIZE_UXGA; // FRAMESIZE_ + QVGA|CIF|VGA|SVGA|XGA|SXGA|UXGA
-    config.jpeg_quality = 10;
+    //config.jpeg_quality = 10;
+    config.jpeg_quality = 0;
     config.fb_count = 2;
   }
   else
   {
     config.frame_size = FRAMESIZE_SVGA;
-    config.jpeg_quality = 12;
+    //config.jpeg_quality = 12;
+    config.jpeg_quality = 0;
     config.fb_count = 1;
   }
 
