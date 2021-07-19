@@ -1,3 +1,6 @@
+//todo format strings for time and alarm
+//todo add ext for days
+
 #include <Arduino.h>
 #include <ArduinoJson.h>
 
@@ -10,12 +13,12 @@
 
 #include <UniversalTelegramBot.h>
 
-//#include <RtcDS3231.h>
-//#include <RtcDateTime.h>
+#include <RtcDS3231.h>
+#include <RtcDateTime.h>
 
-#include "secrets.h"
-//#include <SoftwareWire.h> 
+#include "secrets_2.h"
 
+#include <Wire.h> 
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 
@@ -26,9 +29,11 @@
 #define MOVEMENT_SENSOR_PIN 14
 #define LIGHT_SENSOR_PIN 15
 #define INTERNAL_LED 33
+#define SDA1 2
+#define SCL1 13
 
 //def time
-const unsigned long CHECK_BREAK = 5000; //time to wait between breaks
+const unsigned long CHECK_BREAK = 500; //time to wait between breaks
 unsigned long lastTimeMessageCheck = millis();
 
 //wifi and bot connection
@@ -40,9 +45,9 @@ camera_fb_t *fb = NULL;
 bool dataAvailable = false;
 
 //RTC
-//SoftwareWire myWire(2, 3);
-//RtcDS3231<SoftwareWire> Rtc(myWire);
-//#define countof(a) (sizeof(a) / sizeof(a[0]))
+TwoWire myWire = TwoWire(0);
+RtcDS3231<TwoWire> Rtc(myWire);
+#define countof(a) (sizeof(a) / sizeof(a[0]))
 
 //settings
 bool isActive = true;
@@ -50,18 +55,23 @@ bool useFlash = false;
 bool flashAuto = false;
 bool nextSetTime = false;
 bool nextSetAlarm = false;
+bool isAlarmActive = true;
+
+char lastUpdate = 0;
 
 struct AutoActivate{
   bool active;
-  String time;
+  char time[16];
 };
 AutoActivate autoactivation[7];
 
 //eeprom
-int const eeproSize = sizeof(isActive)+sizeof(useFlash)+sizeof(flashAuto);
+int const eeproSize = sizeof(isActive)+sizeof(useFlash)+sizeof(flashAuto)+sizeof(isAlarmActive)+sizeof(autoactivation);
 int const addressIsActive = 0;
 int const addressUseFlash = sizeof(isActive) + addressIsActive;
 int const addressFlashAuto = sizeof(useFlash) + addressUseFlash;
+int const addressIsAlarmActive= sizeof(flashAuto) + addressFlashAuto;
+int const addressAutoActivate = sizeof(isAlarmActive) + addressIsAlarmActive;
 
 //methods
 void bot_setup();
@@ -79,7 +89,6 @@ void flashoff();
 void flashauto();
 void brightness();
 void image();
-//void printDateTime(const RtcDateTime& dt);
 void settime();
 void displayTime();
 void changeTime(String);
@@ -89,15 +98,13 @@ void changeAlarm(String);
 void checkAutoActivation();
 void setTime();
 void showalarm();
-
-
-
+void deactivateAlarm();
+void activateAlarm();
 bool isMoreDataAvailable();
 byte* getNextBuffer();
 int getNextBufferLen();
 
 void setup() {
-  //serial
   #ifdef DEBUG
     Serial.begin(115200);
   #endif
@@ -119,20 +126,24 @@ void setup() {
   EEPROM.get(addressIsActive, isActive);
   EEPROM.get(addressUseFlash, useFlash);
   EEPROM.get(addressFlashAuto, flashAuto);
+  EEPROM.get(addressIsAlarmActive, isAlarmActive);
+  EEPROM.get(addressAutoActivate, autoactivation);
 
+  //inital for storage
   //autoactivation
-  autoactivation[0] = AutoActivate{false, "00:00:00"};
-  autoactivation[1] = AutoActivate{false, "00:00:00"};
-  autoactivation[2] = AutoActivate{false, "00:00:00"};
-  autoactivation[3] = AutoActivate{false, "00:00:00"};
-  autoactivation[4] = AutoActivate{false, "00:00:00"};
-  autoactivation[5] = AutoActivate{false, "00:00:00"};
-  autoactivation[6] = AutoActivate{false, "00:00:00"};
+  //autoactivation[0] = AutoActivate{false, "00:00:00"};
+  //autoactivation[1] = AutoActivate{false, "00:00:00"};
+  //autoactivation[2] = AutoActivate{false, "00:00:00"};
+  //autoactivation[3] = AutoActivate{false, "00:00:00"};
+  //autoactivation[4] = AutoActivate{false, "00:00:00"};
+  //autoactivation[5] = AutoActivate{false, "00:00:00"};
+  //autoactivation[6] = AutoActivate{false, "00:00:00"};
+  //EEPROM.put(addressAutoActivate, autoactivation);
 
   //setup cammera
   if (!setupCamera()){
     #ifdef DEBUG
-    Serial.println("Camera Setup Failed!");
+      Serial.println("Camera Setup Failed!");
     #endif
     while (true){
       delay(100);
@@ -143,17 +154,18 @@ void setup() {
   }
 
   //change cammera settings
-  sensor_t * s = esp_camera_sensor_get();
-  s->set_vflip(s, 1);
-  s->set_hmirror(s, 1);
+  //sensor_t * s = esp_camera_sensor_get();
+  //s->set_vflip(s, 1);
+  //s->set_hmirror(s, 1);
 
   //rtc
-  //setupRTC();
+  myWire.begin(SDA1,SCL1,400000);
+  setupRTC();
 
   //connect to networke
   #ifdef DEBUG
-  Serial.print("Connecting to Wifi SSID ");
-  Serial.print(WIFI_SSID);
+    Serial.print("Connecting to Wifi SSID ");
+    Serial.print(WIFI_SSID);
   #endif
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   // Add root certificate for api.telegram.org
@@ -190,44 +202,58 @@ void loop() {
     }
   }
 
+  //handel messanges and alarm
   if (millis() - lastTimeMessageCheck > CHECK_BREAK){
     checkForMessanges();
-
-    //checkAutoActivation();
+    checkAutoActivation();
   }
-  //handel message
-
 }
 
-/*
-char lastUpdate = 0;
 void checkAutoActivation(){
-  RtcDateTime now = Rtc.GetDateTime();
+  //check if alarm should be used
+  if(isAlarmActive){
 
-  if(lastUpdate != now.DayOfWeek()){
-    AutoActivate todaysActivation = autoactivation[now.DayOfWeek()]; //i changed mondey to 0 in the enumeration
+    //get Date
+    RtcDateTime now = Rtc.GetDateTime();
 
-    if(todaysActivation.active){
-      char datestring[8];
-        snprintf_P(datestring, 
-                countof(datestring),
-                PSTR("%02u/%02u/%04u"),
-                now.Month(),
-                now.Day(),
-                now.Year());
-      Serial.print("TOday: " + String(datestring));
+    //check if alarm was used tody
+    if(lastUpdate != now.DayOfWeek()){
+      #ifdef DEBUG
+        Serial.println("alarm not used today");
+      #endif
 
-      RtcDateTime alarmeTime = RtcDateTime(datestring, todaysActivation.time.c_str());
+      //get alarm
+      AutoActivate todaysActivation = autoactivation[now.DayOfWeek()]; //i changed mondey to 0 in the enumeration
+      
+      //check if alarm is active
+      if(todaysActivation.active){
+        #ifdef DEBUG
+          Serial.println("execute alarm");
+        #endif
 
-      if(now > alarmeTime){
-        lastUpdate = now.DayOfWeek();
-        autoactivate();
+        //create Datestring
+        char datestring[8];
+        snprintf_P(datestring, countof(datestring),PSTR("%02u/%02u/%04u"),now.Month(),now.Day(),now.Year());
+        #ifdef DEBUG
+          Serial.print("Today: " + String(datestring));
+        #endif
+
+        //compare now with alarm 
+        String timeofAlarm = todaysActivation.time;
+        RtcDateTime alarmeTime = RtcDateTime(now.Year(),now.Month(), now.Day(), timeofAlarm.substring(0,2).toInt(), timeofAlarm.substring(2,4).toInt(), timeofAlarm.substring(4,6).toInt());
+        if(now > alarmeTime){
+          //start alarm
+          #ifdef DEBUG
+            Serial.println("start");
+          #endif
+          lastUpdate = now.DayOfWeek();
+          autoactivate();
+        }
       }
     }
   }
 }
-*/
-/*
+
 void autoactivate(){
   isActive = true;
   EEPROM.write(addressIsActive, isActive);
@@ -235,7 +261,7 @@ void autoactivate(){
 
   String answer = "Camera is automatically \xF0\x9F\xA4\x96 set *active* \xE2\x9A\xA0!";
   bot.sendMessage(CHAT_ID, answer, "Markdown");
-}*/
+}
 
 void bot_setup(){
   const String commands = F("["
@@ -249,10 +275,12 @@ void bot_setup(){
                               "{\"command\":\"flashauto\", \"description\":\"\xF0\x9F\x91\x80 Automatically use flash if needed\"},"
                               "{\"command\":\"brightness\", \"description\":\"\xF0\x9F\x8C\x9E Tells you if auto mode will use flash\"},"
                               "{\"command\":\"image\", \"description\":\"\xF0\x9F\x93\xB7 Take an image\"},"
-                              /*"{\"command\":\"displaytime\", \"description\":\"\xF0\x9F\x95\x92 Show time\"},"
+                              "{\"command\":\"displaytime\", \"description\":\"\xF0\x9F\x95\x92 Show time\"},"
                               "{\"command\":\"settime\", \"description\":\"\xF0\x9F\x95\x92 \xE2\x9C\x8F Change Time\"},"
                               "{\"command\":\"showalarm\", \"description\":\"\xE2\x8F\xB0 Show all Alarms\"},"
-                              "{\"command\":\"setalarm\", \"description\":\"\xE2\x8F\xB0 \xE2\x9C\x8F Set / Change new Alarm\"}"*/
+                              "{\"command\":\"setalarm\", \"description\":\"\xE2\x8F\xB0 \xE2\x9C\x8F Set / Change new Alarm\"}"
+                              "{\"command\":\"activateAlarm\", \"description\":\"\xF0\x9F\xA4\x96 \xE2\x9C\x94 Activate Alarm\"}"
+                              "{\"command\":\"deactivateAlarm\", \"description\":\"\xF0\x9F\xA4\x96 \xF0\x9F\x9A\xAB Deactivate Alarm\"}"
                             "]");
   #ifdef DEBUG
     Serial.println("commands: "+ bot.setMyCommands(commands) ? "true":"false");
@@ -260,69 +288,66 @@ void bot_setup(){
     bot.setMyCommands(commands); 
   #endif
 }
-/*
+
 void setupRTC(){
   Rtc.Begin();
 
-    RtcDateTime compiled = RtcDateTime(__DATE__, __TIME__);
-    printDateTime(compiled);
-    Serial.println();
-
-    if (!Rtc.IsDateTimeValid()) 
-    {
-        if (Rtc.LastError() != 0)
-        {
-            // we have a communications error
-            // see https://www.arduino.cc/en/Reference/WireEndTransmission for 
-            // what the number means
+  RtcDateTime compiled = RtcDateTime(__DATE__, __TIME__);
+  if (!Rtc.IsDateTimeValid()) {
+      if (Rtc.LastError() != 0) {
+          // we have a communications error
+          // see https://www.arduino.cc/en/Reference/WireEndTransmission for 
+          // what the number means
+          #ifdef DEBUG
             Serial.print("RTC communications error = ");
             Serial.println(Rtc.LastError());
-        }
-        else
-        {
-            // Common Causes:
-            //    1) first time you ran and the device wasn't running yet
-            //    2) the battery on the device is low or even missing
-
+          #endif
+      }else{
+          // Common Causes:
+          //    1) first time you ran and the device wasn't running yet
+          //    2) the battery on the device is low or even missing
+          #ifdef DEBUG
             Serial.println("RTC lost confidence in the DateTime!");
+          #endif
 
-            // following line sets the RTC to the date & time this sketch was compiled
-            // it will also reset the valid flag internally unless the Rtc device is
-            // having an issue
+          // following line sets the RTC to the date & time this sketch was compiled
+          // it will also reset the valid flag internally unless the Rtc device is
+          // having an issue
 
-            Rtc.SetDateTime(compiled);
-        }
-    }
+          Rtc.SetDateTime(compiled);
+      }
+  }
 
-    if (!Rtc.GetIsRunning())
-    {
+  if (!Rtc.GetIsRunning()){
+      #ifdef DEBUG
         Serial.println("RTC was not actively running, starting now");
-        Rtc.SetIsRunning(true);
-    }
+      #endif
+      Rtc.SetIsRunning(true);
+  }
 
-    RtcDateTime now = Rtc.GetDateTime();
-    if (now < compiled) 
-    {
-        Serial.println("RTC is older than compile time!  (Updating DateTime)");
-        Rtc.SetDateTime(compiled);
-    }
-    else if (now > compiled) 
-    {
-        Serial.println("RTC is newer than compile time. (this is expected)");
-    }
-    else if (now == compiled) 
-    {
-        Serial.println("RTC is the same as compile time! (not expected but all is fine)");
-    }
+  RtcDateTime now = Rtc.GetDateTime();
+  if (now < compiled){
+    #ifdef DEBUG
+      Serial.println("RTC is older than compile time!  (Updating DateTime)");
+    #endif
+      Rtc.SetDateTime(compiled);
+  }else if (now > compiled) {
+    #ifdef DEBUG
+      Serial.println("RTC is newer than compile time. (this is expected)");
+    #endif
+  }else if (now == compiled) {
+    #ifdef DEBUG
+      Serial.println("RTC is the same as compile time! (not expected but all is fine)");
+    #endif
+  }
 
-    // never assume the Rtc was last configured by you, so
-    // just clear them to your needed state
-    Rtc.Enable32kHzPin(false);
-    Rtc.SetSquareWavePin(DS3231SquareWavePin_ModeNone);
-}*/
+  // never assume the Rtc was last configured by you, so
+  // just clear them to your needed state
+  Rtc.Enable32kHzPin(false);
+  Rtc.SetSquareWavePin(DS3231SquareWavePin_ModeNone);
+}
 
 void checkForMessanges(){
- 
   int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
   while (numNewMessages){
     #ifdef DEBUG
@@ -341,25 +366,24 @@ void sendImage(){
     digitalWrite(FLASH_LED_PIN,1);
   }
 
-  // Take Picture with Camera
   fb = NULL;
+  // Take Picture with Camera
   fb = esp_camera_fb_get();
-  //process image
   if (!fb){
     #ifdef DEBUG
-      Serial.println("Camera capture failed");
+    Serial.println("Camera capture failed");
     #endif
     bot.sendMessage(CHAT_ID, "Camera capture failed", "");
     return;
   }
-  //data are available
   dataAvailable = true;
   #ifdef DEBUG
-    Serial.println("Sending");
+  Serial.println("Sending");
   #endif
-  bot.sendPhotoByBinary(CHAT_ID, "image/jpeg", fb->len, isMoreDataAvailable, nullptr, getNextBuffer, getNextBufferLen);
+  bot.sendPhotoByBinary(CHAT_ID, "image/jpeg", fb->len,
+                        isMoreDataAvailable, nullptr,
+                        getNextBuffer, getNextBufferLen);
 
-  //prepare for next use
   esp_camera_fb_return(fb);
 
   //trun flash off
@@ -405,7 +429,7 @@ void handleNewMessages(int numNewMessages){
       brightness();
     }else if (msg.text == "/image"){
       image();
-    /*}else if (msg.text == "/displaytime"){
+    }else if (msg.text == "/displaytime"){
       displayTime();
     }else if (msg.text == "/settime"){
       setTime();
@@ -413,20 +437,27 @@ void handleNewMessages(int numNewMessages){
       showalarm();
     }else if (msg.text == "/setalarm"){
       setalarm();
-    */}else{
-      /*if(nextSetTime){
+    }else if (msg.text == "/activateAlarm"){
+      activateAlarm();
+    }else if (msg.text == "/deactivateAlarm"){
+      deactivateAlarm();
+    }else{
+      if(nextSetTime){
         changeTime(msg.text);
       }else if(nextSetAlarm){
         changeAlarm(msg.text);
-      }else{*/
+      }else{
         String answer = "\""+msg.text+ "\" is *unknown* \xF0\x9F\x98\x9F! Use /help for more information";
         bot.sendMessage(CHAT_ID, answer, "Markdown");
-      //}
+      }
     }
+    if(!( msg.text == "/setalarm" || msg.text == "/settime")){
+    if(nextSetTime) nextSetTime = false;
+    if(nextSetAlarm) nextSetAlarm = false;
+  }
   }
 
-  if(nextSetTime) nextSetTime = false;
-  if(nextSetAlarm) nextSetAlarm = false;
+  
 }
 
 void help(){
@@ -440,10 +471,12 @@ void help(){
                       "/flashauto   - \xF0\x9F\x91\x80 Automatically use flash if needed\n"
                       "/brightness  - \xF0\x9F\x8C\x9E Tells you if auto mode will use flash\n"
                       "/image       - \xF0\x9F\x93\xB7 Take an image\n"
-                      /*"/displaytime - \xF0\x9F\x95\x92 Show time\n"
+                      "/displaytime - \xF0\x9F\x95\x92 Show time\n"
                       "/settime     - \xF0\x9F\x95\x92 \xE2\x9C\x8F change time\n"
                       "/showalarm   - \xE2\x8F\xB0 show all alarms\n"
-                      "/setalarm    - \xE2\x8F\xB0 \xE2\x9C\x8F Change Alarm Settings"*/);
+                      "/setalarm    - \xE2\x8F\xB0 \xE2\x9C\x8F Change Alarm Settings\n"
+                      "/activateAlarm   - \xF0\x9F\xA4\x96 activate Alarm\n"
+                      "/deactivateAlarm    - \xF0\x9F\xA4\x96 \xE2\x9C\x8F deactivate Alarm");
   bot.sendMessage(CHAT_ID, answer, "Markdown");
 }
 
@@ -460,8 +493,9 @@ void start(){
 
                   "By using the /image command a image \xF0\x9F\x93\xB7 can be toke manually.\n\n"
 
-                  //"The internal Time \xF0\x9F\x95\x92 can be checked with /displaytime. The Time can be adjusted \xE2\x9C\x8F by using /settime."
-                  //"The time will be used to acitvate the cammera automatically."
+                  "The internal Time \xF0\x9F\x95\x92 can be checked with /displaytime. The Time can be adjusted \xE2\x9C\x8F by using /settime."
+                  "The time will be used to activate the cammera automatically\xF0\x9F\xA4\x96. To show the Alarm \xE2\x8F\xB0 settings use /showalarm. /setalarm can be used to "
+                  "change the settings. By using /activateAlarm or /deactivateAlarm, the alarm \xF0\x9F\xA4\x96 can be switched on or off"
 
                   "Use /help for a short overview over all commands. ";
 
@@ -488,10 +522,16 @@ void status(){
     bright = "*bright*";
   }
 
+  String alarm = "*deactive* \xF0\x9F\x9A\xAB";
+  if(isAlarmActive){
+    alarm = "*active* \xE2\x9C\x94";
+  }
+
   String answer =  "\xF0\x9F\x9A\xA5 Status:\n"
             "\xF0\x9F\x93\xB7 Camera:\t\t"+status + "\n"
             "\xF0\x9F\x92\xA1 Flash:\t\t"+flash + "\n"
-            "\xF0\x9F\x8C\x9E Brightness:\t"+bright;
+            "\xF0\x9F\x8C\x9E Brightness:\t"+bright+"\n"
+            "\xF0\x9F\xA4\x96 Alarm:\t"+alarm;
   bot.sendMessage(CHAT_ID, answer, "Markdown");
 }
 
@@ -564,7 +604,7 @@ void brightness(){
 void image(){
   sendImage();
 }
-/*
+
 void displayTime(){
   RtcDateTime dt = Rtc.GetDateTime();
   char datestring[20];
@@ -578,7 +618,7 @@ void displayTime(){
           dt.Second() );
 
   String answer = "The Time is: " + String(datestring);
-  bot.sendMessage(CHAT_ID, answer, "Markdown");
+  bot.sendMessage(CHAT_ID, answer + " Day of the Week: " + dt.DayOfWeek(), "Markdown");
 }
 
 void setTime(){
@@ -593,14 +633,14 @@ void changeTime(String time){
   int idx = 0;
   for(;idx<8;idx++){
     char a = time.charAt(idx);
-    if(!(48 >= a && a >= 57)){
+    if(!(48 <= a && a <= 57)){
       error = true;
     }
   }
-  if(!(time.charAt(++idx)==32)) error = true;
+  if(!(time.charAt(idx++)==32)) error = true;
   for(;idx<15;idx++){
     char a = time.charAt(idx);
-    if(!(48 >= a && a >= 57)){
+    if(!(48 <= a && a <= 57)){
       error = true;
     }
   }
@@ -609,7 +649,8 @@ void changeTime(String time){
     int spiltpoint = time.indexOf(" ");
     String date = time.substring(0,spiltpoint);
     String timeClock = time.substring(spiltpoint+1,spiltpoint+1+6);
-    RtcDateTime compiled = RtcDateTime(date.c_str(), timeClock.c_str());
+    RtcDateTime compiled = RtcDateTime(date.substring(4,8).toInt(),date.substring(2,4).toInt(),date.substring(0,2).toInt(),
+              timeClock.substring(4,6).toInt(),timeClock.substring(2,4).toInt(),timeClock.substring(0,2).toInt());
     Rtc.SetDateTime(compiled);
 
     String answer = "Time set sucessfully \xF0\x9F\x98\x81";
@@ -623,10 +664,14 @@ void changeTime(String time){
 void showalarm(){
   String answere = "";
 
-  for ( int fooInt = DayOfWeek_Monday; fooInt != DayOfWeek_Sunday; fooInt++ ){
+  for ( int fooInt = DayOfWeek_Monday; fooInt != DayOfWeek_Sunday+1; fooInt++ ){
     DayOfWeek foo = static_cast<DayOfWeek>(fooInt);
 
     AutoActivate toPrint = autoactivation[foo];
+
+    #ifdef DEBUG
+    Serial.println(String(toPrint.time) + " " + String(toPrint.active));
+    #endif
 
     String printing = "Day:" + String(foo) + " Time:" + String(toPrint.time) + " Active:" + String(toPrint.active)+"\n";
     answere += printing;
@@ -644,33 +689,60 @@ void setalarm(){
 
 void changeAlarm(String message){
   char a = message.charAt(0);
-  if(!(48 >= a && a >= 54)){
+  a -= 48;
+  if(!(a>=0 && a <= 6)){
     String answer = "Error in Day Format, try again by using the /setalarm command";
     bot.sendMessage(CHAT_ID, answer, "Markdown");
+    return;
   }
-
-  a -= 48;
 
   for(int idx = 2; idx<8; idx++){
     char b = message.charAt(0);
-    if(!(48 >= b && b >= 57)){
+    if(!(48 <= b && b <= 57)){
       String answer = "Error in Time Format, try again by using the /setalarm command";
       bot.sendMessage(CHAT_ID, answer, "Markdown");
+      return;
     }
   }
 
-  String time = message.substring(3,8);
+  String time = message.substring(2,8);
 
   char b = message.charAt(9);
-  if(!(48 >= b && b >= 49)){
+  b=b-48;
+  if(!(b>=0 && b <= 1)){
     String answer = "Error in Active Format, try again by using the /setalarm command";
     bot.sendMessage(CHAT_ID, answer, "Markdown");
+    return;
   }
 
-  b=b-48;
+  //update alarm
+  autoactivation[(int)a].active = (b==1);
+  strncpy( autoactivation[(int)a].time, time.c_str(), 16);
 
-  autoactivation[(int)a] = AutoActivate{(b==1), time};
-}*/
+  EEPROM.put(addressAutoActivate, autoactivation);
+  EEPROM.commit();
+
+  String answer = "\xE2\x8F\xB0 Alarm changed";
+  bot.sendMessage(CHAT_ID, answer, "Markdown");
+}
+
+void activateAlarm(){
+  isAlarmActive = true;
+  EEPROM.write(addressIsAlarmActive, isAlarmActive);
+  EEPROM.commit();
+
+  String answer = "\xF0\x9F\xA4\x96 \xE2\x9C\x94 Activate Alarm";
+  bot.sendMessage(CHAT_ID, answer, "Markdown");
+}
+
+void deactivateAlarm(){
+  isAlarmActive = false;
+  EEPROM.write(addressIsAlarmActive, isAlarmActive);
+  EEPROM.commit();
+
+  String answer = "\xF0\x9F\xA4\x96 \xF0\x9F\x9A\xAB Deactivate Alarm";
+  bot.sendMessage(CHAT_ID, answer, "Markdown");
+}
 
 bool isMoreDataAvailable(){
   if (dataAvailable){
@@ -686,5 +758,17 @@ byte* getNextBuffer(){
     return fb->buf;
   }else{
     return nullptr;
+  }
+}
+
+int getNextBufferLen()
+{
+  if (fb)
+  {
+    return fb->len;
+  }
+  else
+  {
+    return 0;
   }
 }
