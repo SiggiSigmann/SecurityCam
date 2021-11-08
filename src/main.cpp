@@ -1,23 +1,28 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 
+//cammera
 #include "esp_camera.h"
 #define CAMERA_MODEL_AI_THINKER
 #include "camera_pins.h"
 #include "camera_code.h"
 
+//permanent storage
 #include <EEPROM.h>
 
+//telegram bot
 #include <UniversalTelegramBot.h>
 
+//real time clock
 #include <RtcDS3231.h>
 #include <RtcDateTime.h>
+#include <Wire.h>
 
-#include "secrets_2.h"
-
-#include <Wire.h> 
-#include <WiFi.h>
+//wifi
+#include <WiFiManager.h>
 #include <WiFiClientSecure.h>
+
+#include "secrets.h"
 
 #define DEBUG 1
 
@@ -46,7 +51,7 @@ TwoWire myWire = TwoWire(0);
 RtcDS3231<TwoWire> Rtc(myWire);
 #define countof(a) (sizeof(a) / sizeof(a[0]))
 
-//settings
+//settings falgs
 bool isActive = true;
 bool useFlash = false;
 bool flashAuto = false;
@@ -59,13 +64,14 @@ bool nextAlarmDeactivate = false;
 //when was laram last set
 char lastUpdate = 0;
 
+//store when to autoactivate the alarm for each day => 7 Days a week
 struct AutoActivate{
   bool active;
   char time[7];
 };
 AutoActivate autoactivation[7];
 
-//eeprom
+//eeprom adresses
 int const eeproSize = sizeof(isActive)+sizeof(useFlash)+sizeof(flashAuto)+sizeof(isAlarmActive)+sizeof(autoactivation);
 int const addressIsActive = 0;
 int const addressUseFlash = sizeof(isActive) + addressIsActive;
@@ -109,7 +115,8 @@ void temperatur();
 byte* getNextBuffer();
 int getNextBufferLen();
 
-String weekdays[7] = {"Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday "};
+//weekdaystrings
+String weekdays[7] = {"Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"};
 
 void setup() {
   #ifdef DEBUG
@@ -121,6 +128,18 @@ void setup() {
   pinMode(LIGHT_SENSOR_PIN,INPUT);
   pinMode(FLASH_LED_PIN, OUTPUT);
   pinMode(INTERNAL_LED, OUTPUT);
+
+  WiFiManager wm;
+  //wm.resetSettings();                                //reset Wifimanager => credentials will be deleted
+  wm.setClass("invert"); // dark theme
+  bool res = wm.autoConnect("SecurityCam"); // password protected ap
+
+  if(!res) {
+    #ifdef DEBUG
+      Serial.println("Failed to connect");
+      // ESP.restart();
+      #endif
+  } 
 
   //turn on internal led
   digitalWrite(INTERNAL_LED,0);
@@ -170,11 +189,6 @@ void setup() {
   setupRTC();
 
   //connect to networke
-  #ifdef DEBUG
-    Serial.print("Connecting to Wifi SSID ");
-    Serial.print(WIFI_SSID);
-  #endif
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   // Add root certificate for api.telegram.org
   secured_client.setCACert(TELEGRAM_CERTIFICATE_ROOT);
   while (WiFi.status() != WL_CONNECTED){
