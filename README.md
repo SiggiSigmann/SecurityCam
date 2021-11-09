@@ -1,10 +1,11 @@
 # SecurityCam
 ESP-Cam take picture when movement detected and post it to telegram
 
-<img src="https://raw.githubusercontent.com/SiggiSigmann/SecurityCam/main/img/3.jpg" alt="1" title="1" />
-<img src="https://raw.githubusercontent.com/SiggiSigmann/SecurityCam/main/img/3.jpg" alt="2" title="2" />
-<img src="https://raw.githubusercontent.com/SiggiSigmann/SecurityCam/main/img/3.jpg" alt="3" title="3" />
+<img src="https://raw.githubusercontent.com/SiggiSigmann/SecurityCam/main/img/3.jpg" alt="3" title="3"  width="25%"/>
+<img src="https://raw.githubusercontent.com/SiggiSigmann/SecurityCam/main/img/1.jpg" alt="1" title="1"  width="25%"/>
+<img src="https://raw.githubusercontent.com/SiggiSigmann/SecurityCam/main/img/2.jpg" alt="2" title="2"  width="25%"/>
 
+## How to Install
 ## Commands
 * help => Print short overview
 * start => Print info and short manual
