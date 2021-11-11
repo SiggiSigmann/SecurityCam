@@ -33,6 +33,9 @@ ESP-Cam take picture when movement detected and post it to telegram
 * activatealarmforday => Activate Alarm for a Day
 * deactivatealarmforday => Deactivate Alarm for a Day
 * temperatur => Display RTC Temperatur
+* getRTCStatus => returns RTC status
+* activateRTC => activate RTC
+* deactvateRTC=> deactivate RTC => prepare for storage
 ## Circuit
 <img src="https://raw.githubusercontent.com/SiggiSigmann/SecurityCam/main/img/circuit.jpg" alt="Circuit" title="Circuit" />
 Made with https://easyeda.com/
