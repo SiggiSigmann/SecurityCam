@@ -1,4 +1,6 @@
 #include <Arduino.h>
+
+//Json library for communication
 #include <ArduinoJson.h>
 
 //cammera
@@ -24,7 +26,7 @@
 
 #include "secrets.h"
 
-#define DEBUG 1
+#define DEBUG 0
 
 //define pins
 #define FLASH_LED_PIN 4
@@ -47,6 +49,7 @@ camera_fb_t *fb = NULL;
 bool dataAvailable = false;
 
 //RTC
+//Check if RTC is active
 TwoWire myWire = TwoWire(0);
 RtcDS3231<TwoWire> Rtc(myWire);
 #define countof(a) (sizeof(a) / sizeof(a[0]))
@@ -114,6 +117,9 @@ void changeAlarmDeaktivityPerDay(String);
 void temperatur();
 byte* getNextBuffer();
 int getNextBufferLen();
+void getRTCStatus();
+void activateRTC();
+void deactvateRTC();
 
 //weekdaystrings
 String weekdays[7] = {"Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"};
@@ -230,6 +236,7 @@ void loop() {
   }
 }
 
+//check if cammera has to be auto activated
 void checkAutoActivation(){
   //check if alarm should be used
   if(isAlarmActive){
@@ -268,6 +275,7 @@ void checkAutoActivation(){
   }
 }
 
+//
 void autoactivate(){
   isActive = true;
   EEPROM.write(addressIsActive, isActive);
@@ -277,6 +285,7 @@ void autoactivate(){
   bot.sendMessage(CHAT_ID, answer, "Markdown");
 }
 
+//send all commands to telegram => they will be klickabel
 void bot_setup(){
   Serial.println("setup bot");
   const String commands = F("["
@@ -298,7 +307,10 @@ void bot_setup(){
                               "{\"command\":\"deactivatealarm\", \"description\":\"\xF0\x9F\xA4\x96 \xF0\x9F\x9A\xAB Deactivate Alarm\"},"
                               "{\"command\":\"activatealarmforday\", \"description\":\"\xF0\x9F\xA4\x96 \xE2\x9C\x94 Activate Alarm for a Day\"},"
                               "{\"command\":\"deactivatealarmforday\", \"description\":\"\xF0\x9F\xA4\x96 \xF0\x9F\x9A\xAB Deactivate Alarm for a Day\"},"
-                              "{\"command\":\"temperatur\", \"description\":\"\xE2\x99\xA8 Display RTC Temperatur\"}"
+                              "{\"command\":\"temperatur\", \"description\":\"\xE2\x99\xA8 Display RTC Temperatur\"},"
+                              "{\"command\":\"getRTCStatus\", \"description\":\"returns RTC status\"},"
+                              "{\"command\":\"activateRTC\", \"description\":\"activate RTC\"},"
+                              "{\"command\":\"deactvateRTC\", \"description\":\"deactivate RTC => prepare for storage\"}"
                             "]");
 
   #ifdef DEBUG
@@ -311,6 +323,7 @@ void bot_setup(){
 void setupRTC(){
   Rtc.Begin();
 
+  //check if update is needed
   RtcDateTime compiled = RtcDateTime(__DATE__, __TIME__);
   if (!Rtc.IsDateTimeValid()) {
       if (Rtc.LastError() != 0) {
@@ -366,6 +379,7 @@ void setupRTC(){
   Rtc.SetSquareWavePin(DS3231SquareWavePin_ModeNone);
 }
 
+//handel new message
 void checkForMessanges(){
   int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
   while (numNewMessages){
@@ -379,6 +393,7 @@ void checkForMessanges(){
 
 }
 
+//select handelmethod
 void handleNewMessages(int numNewMessages){
   #ifdef DEBUG
     Serial.print("handleNewMessages ");
@@ -433,6 +448,12 @@ void handleNewMessages(int numNewMessages){
         deactivatealarmforday();
       }else if (msg.text == "/temperatur"){
         temperatur();
+      }else if (msg.text == "/getRTCStatus"){
+        getRTCStatus();
+      }else if (msg.text == "/activateRTC"){
+        activateRTC();
+      }else if (msg.text == "/deactvateRTC"){
+        deactvateRTC();
       }else{
         if(nextSetTime){
           changeTime(msg.text);
@@ -490,6 +511,7 @@ void help(){
   bot.sendMessage(CHAT_ID, answer, "Markdown");
 }
 
+//send starttext
 void start(){
   String answer = "*Huhu*, the camera \xF0\x9F\x93\xB7 is now active \xE2\x9A\xA0 and will send images when a movement is detected. "
                   "You can change the state with /activate \xE2\x9A\xA0 and /deactivate \xF0\x9F\x9A\xAB. The red light, at the back shows, "
@@ -896,4 +918,25 @@ int getNextBufferLen(){
   }else{
     return 0;
   }
+}
+
+/*
+* #####################################################################################
+* RTC activation / deactivation
+*/
+void getRTCStatus(){
+  String answer = "RTC status: " + String(Rtc.GetIsRunning());
+  bot.sendMessage(CHAT_ID, answer, "Markdown");
+}
+
+void activateRTC(){
+  Rtc.SetIsRunning(true);
+  getRTCStatus();
+
+  setupRTC();
+}
+
+void deactvateRTC(){
+  Rtc.SetIsRunning(false);
+  getRTCStatus();
 }
