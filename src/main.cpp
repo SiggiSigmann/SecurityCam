@@ -310,7 +310,7 @@ void bot_setup(){
                               "{\"command\":\"temperatur\", \"description\":\"\xE2\x99\xA8 Display RTC Temperatur\"},"
                               "{\"command\":\"getRTCStatus\", \"description\":\"returns RTC status\"},"
                               "{\"command\":\"activateRTC\", \"description\":\"activate RTC\"},"
-                              "{\"command\":\"deactvateRTC\", \"description\":\"deactivate RTC => prepare for storage\"}"
+                              "{\"command\":\"deactivateRTC\", \"description\":\"deactivate RTC => prepare for storage\"}"
                             "]");
 
   #ifdef DEBUG
@@ -452,7 +452,7 @@ void handleNewMessages(int numNewMessages){
         getRTCStatus();
       }else if (msg.text == "/activateRTC"){
         activateRTC();
-      }else if (msg.text == "/deactvateRTC"){
+      }else if (msg.text == "/deactivateRTC"){
         deactvateRTC();
       }else{
         if(nextSetTime){
