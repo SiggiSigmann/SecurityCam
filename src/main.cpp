@@ -54,7 +54,7 @@ TwoWire myWire = TwoWire(0);
 RtcDS3231<TwoWire> Rtc(myWire);
 #define countof(a) (sizeof(a) / sizeof(a[0]))
 
-//settings falgs
+//ieings falgs
 bool isActive = true;
 bool useFlash = false;
 bool flashAuto = false;
@@ -723,7 +723,7 @@ void changeTime(String time){
 void showalarm(){
   String answere = "";
 
-  for ( int fooInt = DayOfWeek_Monday; fooInt != DayOfWeek_Sunday+1; fooInt++ ){
+  for ( int fooInt = DayOfWeek_Sunday; fooInt != DayOfWeek_Saturday+1; fooInt++ ){
     DayOfWeek foo = static_cast<DayOfWeek>(fooInt);
 
     AutoActivate toPrint = autoactivation[foo];
