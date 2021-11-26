@@ -122,7 +122,7 @@ void activateRTC();
 void deactvateRTC();
 
 //weekdaystrings
-String weekdays[7] = {"Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"};
+String weekdays[7] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
 
 void setup() {
   #ifdef DEBUG
@@ -507,7 +507,11 @@ void help(){
                       "/deactivatealarm    - \xF0\x9F\xA4\x96 \xE2\x9C\x8F deactivate Alarm\n"
                       "/activatealarmforday - \xF0\x9F\xA4\x96 \xE2\x9C\x94 Activate Alarm for a Day\n"
                       "/deactivatealarmforday - \xF0\x9F\xA4\x96 \xF0\x9F\x9A\xAB Deactivate Alarm for a Day\n"
-                      "/temperatur - \xE2\x99\xA8 Show RTC temperature");
+                      "/temperatur - \xE2\x99\xA8 Show RTC temperature\n"
+                      "/getRTCStatus - getRTC status\n"
+                      "/activateRTC -  activate RTC\n"
+                      "/deactivateRTC - deactivate RTC\n"
+                      );
   bot.sendMessage(CHAT_ID, answer, "Markdown");
 }
 
@@ -528,6 +532,8 @@ void start(){
                   "The internal Time \xF0\x9F\x95\x92 can be checked with /displaytime. The Time can be adjusted \xE2\x9C\x8F by using /settime."
                   "The time will be used to activate the cammera automatically\xF0\x9F\xA4\x96. To show the Alarm \xE2\x8F\xB0 settings use /showalarm. /setalarm can be used to "
                   "change the settings. By using /activatealarm or /deactivatealarm, the alarm \xF0\x9F\xA4\x96 can be switched on or off"
+
+                  "To get the status of the RTC use /getRTCStatus . Change the commend by using /activateRTC or /deactivateRTC ."
 
                   "Use /help for a short overview over all commands. ";
 
@@ -723,7 +729,7 @@ void changeTime(String time){
 void showalarm(){
   String answere = "";
 
-  for ( int fooInt = DayOfWeek_Sunday; fooInt != DayOfWeek_Saturday+1; fooInt++ ){
+  for ( int fooInt = 0; fooInt <= 6; fooInt++ ){
     DayOfWeek foo = static_cast<DayOfWeek>(fooInt);
 
     AutoActivate toPrint = autoactivation[foo];
@@ -736,6 +742,7 @@ void showalarm(){
 
     String printing = "Day:" + String(weekdays[foo]) + " Time:" + time.substring(0,2) +":"+time.substring(2,4)+":"+time.substring(4,6) + " Active:" + String(toPrint.active)+"\n";
     answere += printing;
+    
   }
   String answer = "The alarm settings are: \n";
   bot.sendMessage(CHAT_ID, answer+answere, "Markdown");
